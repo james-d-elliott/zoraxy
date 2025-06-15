@@ -1,7 +1,6 @@
 package main
 
 import (
-	"imuslab.com/zoraxy/mod/auth/sso/oauth2"
 	"log"
 	"net/http"
 	"os"
@@ -11,10 +10,12 @@ import (
 	"time"
 
 	"github.com/gorilla/csrf"
+
 	"imuslab.com/zoraxy/mod/access"
 	"imuslab.com/zoraxy/mod/acme"
 	"imuslab.com/zoraxy/mod/auth"
 	"imuslab.com/zoraxy/mod/auth/sso/forward"
+	"imuslab.com/zoraxy/mod/auth/sso/oauth2"
 	"imuslab.com/zoraxy/mod/database"
 	"imuslab.com/zoraxy/mod/database/dbinc"
 	"imuslab.com/zoraxy/mod/dockerux"
@@ -69,17 +70,12 @@ func startupSequence() {
 	})
 
 	//Create database
-	backendType := database.GetRecommendedBackendType()
-	if *databaseBackend == "leveldb" {
-		backendType = dbinc.BackendLevelDB
-	} else if *databaseBackend == "boltdb" {
-		backendType = dbinc.BackendBoltDB
-	}
+	backendType, db, err := startupSequenceDatabase()
 	l.PrintAndLog("database", "Using "+backendType.String()+" as the database backend", nil)
-	db, err := database.NewDatabase("./sys.db", backendType)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	sysdb = db
 	//Create tables for the database
 	sysdb.NewTable("settings")
@@ -356,6 +352,20 @@ func startupSequence() {
 	}
 	DockerUXOptimizer = dockerux.NewDockerOptimizer(*runningInDocker, SystemWideLogger)
 
+}
+
+func startupSequenceDatabase() (backendType dbinc.BackendType, db *database.Database, err error) {
+	//Create database
+	backendType = database.GetRecommendedBackendType()
+	if *databaseBackend == "leveldb" {
+		backendType = dbinc.BackendLevelDB
+	} else if *databaseBackend == "boltdb" {
+		backendType = dbinc.BackendBoltDB
+	}
+
+	db, err = database.NewDatabase("./sys.db", backendType)
+
+	return
 }
 
 /* Finalize Startup Sequence */

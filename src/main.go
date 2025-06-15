@@ -42,6 +42,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/csrf"
+
+	"imuslab.com/zoraxy/mod/database"
 	"imuslab.com/zoraxy/mod/geodb"
 	"imuslab.com/zoraxy/mod/update"
 	"imuslab.com/zoraxy/mod/utils"
@@ -69,6 +71,24 @@ func main() {
 	}
 	if *geoDbUpdate {
 		geodb.DownloadGeoDBUpdate("./conf/geodb")
+		os.Exit(0)
+	}
+
+	if len(*databaseBootstrap) != 0 {
+		_, err := os.Stat("./sys.db")
+		if err == nil || !os.IsNotExist(err) {
+			log.Fatal("database already exists")
+		}
+
+		_, db, err := startupSequenceDatabase()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if err = database.Bootstrap(db, *databaseBootstrap); err != nil {
+			log.Fatal(err)
+		}
+
 		os.Exit(0)
 	}
 
