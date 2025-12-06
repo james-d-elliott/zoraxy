@@ -1,10 +1,12 @@
 package forward
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"strconv"
 	"strings"
 
@@ -115,6 +117,8 @@ func (ar *AuthRouter) handleOptionsGET(w http.ResponseWriter, r *http.Request) {
 		DatabaseKeyUseXOriginalHeaders:    ar.options.UseXOriginalHeaders,
 	})
 
+	ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Configuration Options: %s", js), nil)
+
 	utils.SendJSONResponse(w, string(js))
 
 	return
@@ -191,11 +195,37 @@ func (ar *AuthRouter) handleOptionsMethodNotAllowed(w http.ResponseWriter, r *ht
 	return
 }
 
+func (ar *AuthRouter) HandleAuthProviderRoutingRecorded(w http.ResponseWriter, r *http.Request) (err error) {
+	buf := new(bytes.Buffer)
+
+	wr := &ResponseRecorder{ResponseWriter: w, Body: buf}
+
+	if err = ar.HandleAuthProviderRouting(wr, r); err != nil {
+		dumped, _ := httputil.DumpResponse(&http.Response{StatusCode: wr.Status, Header: wr.Header(), Body: io.NopCloser(buf)}, false)
+
+		ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Response Validation with dump:\n%s", string(dumped)), err)
+
+		return err
+	}
+
+	dumped, _ := httputil.DumpResponse(&http.Response{StatusCode: wr.Status, Header: wr.Header(), Body: io.NopCloser(buf)}, false)
+
+	ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Response Validation with dump:\n%s", string(dumped)), nil)
+
+	return nil
+}
+
 // HandleAuthProviderRouting is the internal handler for Forward Auth authentication.
 func (ar *AuthRouter) HandleAuthProviderRouting(w http.ResponseWriter, r *http.Request) error {
 	if ar.options.Address == "" {
 		return ar.handle500Error(w, nil, "Address not set")
 	}
+
+	dumped, _ := httputil.DumpRequest(r, false)
+
+	ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Request Validation with dump:\n%s", string(dumped)), nil)
+
+	ar.logOptions()
 
 	// Make a request to Authz Server to verify the request
 	req, err := http.NewRequest(http.MethodGet, ar.options.Address, nil)
@@ -220,6 +250,10 @@ func (ar *AuthRouter) HandleAuthProviderRouting(w http.ResponseWriter, r *http.R
 		}
 	}
 
+	dumped, _ = httputil.DumpRequestOut(req, false)
+
+	ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Rquest to %s with dump:\n%s", ar.options.Address, string(dumped)), nil)
+
 	// Make the Authz Request.
 	respForwarded, err := ar.client.Do(req)
 	if err != nil {
@@ -227,6 +261,10 @@ func (ar *AuthRouter) HandleAuthProviderRouting(w http.ResponseWriter, r *http.R
 	}
 
 	defer respForwarded.Body.Close()
+
+	dumped, _ = httputil.DumpResponse(respForwarded, false)
+
+	ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Response from %s with dump:\n%s", ar.options.Address, string(dumped)), nil)
 
 	// Responses within the 200-299 range are considered successful and allow the proxy to handle the request.
 	if respForwarded.StatusCode >= http.StatusOK && respForwarded.StatusCode < http.StatusMultipleChoices {
@@ -255,6 +293,8 @@ func (ar *AuthRouter) HandleAuthProviderRouting(w http.ResponseWriter, r *http.R
 		w.WriteHeader(respForwarded.StatusCode)
 	}
 
+	ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Response from %s with dump: %s", ar.options.Address, string(dumped)), nil)
+
 	if _, err = io.Copy(w, respForwarded.Body); err != nil {
 		return ar.handle500Error(w, err, "Unable to copy response")
 	}
@@ -273,4 +313,24 @@ func (ar *AuthRouter) handle500Error(w http.ResponseWriter, err error, message s
 
 func (ar *AuthRouter) logOptions() {
 	ar.options.Logger.PrintAndLog(LogTitle, fmt.Sprintf("Forward Authz Options -> Address: %s, Response Headers: %s, Response Client Headers: %s, Request Headers: %s, Request Included Cookies: %s, Request Excluded Cookies: %s, Request Include Body: %t, Use X-Original Headers: %t", ar.options.Address, strings.Join(ar.options.ResponseHeaders, ";"), strings.Join(ar.options.ResponseClientHeaders, ";"), strings.Join(ar.options.RequestHeaders, ";"), strings.Join(ar.options.RequestIncludedCookies, ";"), strings.Join(ar.options.RequestExcludedCookies, ";"), ar.options.RequestIncludeBody, ar.options.UseXOriginalHeaders), nil)
+}
+
+type ResponseRecorder struct {
+	http.ResponseWriter
+	Status int
+	Body   *bytes.Buffer
+}
+
+func (rr *ResponseRecorder) Header() http.Header {
+	return rr.ResponseWriter.Header()
+}
+
+func (rr *ResponseRecorder) Write(b []byte) (int, error) {
+	rr.Body.Write(b)                  // Capture the body
+	return rr.ResponseWriter.Write(b) // Write to the original ResponseWriter
+}
+
+func (rr *ResponseRecorder) WriteHeader(statusCode int) {
+	rr.Status = statusCode // Capture the status code
+	rr.ResponseWriter.WriteHeader(statusCode)
 }

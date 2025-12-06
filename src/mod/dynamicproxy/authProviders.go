@@ -140,7 +140,7 @@ func handleBasicAuth(w http.ResponseWriter, r *http.Request, pe *ProxyEndpoint) 
 
 // Handle forward auth routing
 func (h *ProxyHandler) handleForwardAuth(w http.ResponseWriter, r *http.Request) error {
-	return h.Parent.Option.ForwardAuthRouter.HandleAuthProviderRouting(w, r)
+	return h.Parent.Option.ForwardAuthRouter.HandleAuthProviderRoutingRecorded(w, r)
 }
 
 func (h *ProxyHandler) handleOAuth2Auth(w http.ResponseWriter, r *http.Request) error {
